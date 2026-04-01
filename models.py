@@ -59,11 +59,8 @@ class Model1(nn.Module):
 
         self.spatial_net = models.mobilenet_v2(weights="IMAGENET1K_V1").features
 
-        for param in self.spatial_net[:-20].parameters():
+        for param in self.spatial_net[-4:].parameters():
             param.requires_grad = False
-
-        for param in self.spatial_net[-20:].parameters():
-            param.requires_grad = True
             
         self.pool = nn.AdaptiveAvgPool2d(1)
 
@@ -123,8 +120,11 @@ class Model2(nn.Module):
 
         self.spatial_net = models.mobilenet_v2(weights="IMAGENET1K_V1").features
 
-        for param in self.spatial_net[-4:].parameters():
+        for param in self.spatial_net[:-20].parameters():
             param.requires_grad = False
+
+        for param in self.spatial_net[-20:].parameters():
+            param.requires_grad = True
             
         self.pool = nn.AdaptiveAvgPool2d(1)
         
