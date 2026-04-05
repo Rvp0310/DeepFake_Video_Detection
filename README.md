@@ -22,7 +22,7 @@ project/
 │   ├── val/
 │   └── test/
 │
-├── best_model.pth    (model currently used)
+├── Model3.pth    (model currently used)
 └── README.md      (this file)
 ```
 
