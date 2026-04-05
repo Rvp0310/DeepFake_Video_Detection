@@ -44,45 +44,45 @@ class DeepfakeDataset(Dataset):
 
 
 # frame extraction function
-def extract_frames(vid_path, num_frames = 10, resize=None):
-    vid_path = Path(vid_path)
-
+def extract_frames(vid_path, num_frames = 16, resize=None):
     cap = cv2.VideoCapture(str(vid_path))
 
     if not cap.isOpened():
         print(f"Error opening video: {vid_path}")
         return
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    if total_frames == 0:
-        print(f"No frames found in: {vid_path}")
-        return
-
-    interval = max(total_frames // num_frames, 1)
-
     frames = []
-    frame_id = 0
+    prev_gray = None
+    diffs = []
+    all_frames = []
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
+            
+        if resize is not None:
+            frame = cv2.resize(frame, resize)
 
-        if frame_id % interval == 0:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        all_frames.append(frame)
 
-            if resize is not None:
-                frame = cv2.resize(frame, resize)
+        if prev_gray is not None:
+            diff = cv2.absdiff(gray, prev_gray)
+            score = np.sum(diff)
+            diffs.append(score)
+        else:
+            diffs.append(0)
 
-            frames.append(frame)
-
-            if len(frames) >=  num_frames:
-                break
-
-        frame_id += 1
+        prev_gray = gray
 
     cap.release()
-    return frames
+
+    idxs = np.argsort(diffs)[-num_frames:]
+    idxs = sorted(idxs)
+
+    selected = [all_frames[i] for i in idxs]
+    return selected
 
 
 # face detection function
@@ -92,20 +92,29 @@ def face_detect_trace(vid_path):
     faces = []
 
     frames = extract_frames(vid_path)
-
-    first = frames[0]
-    gray = cv2.cvtColor(first, cv2.COLOR_BGR2GRAY)
-
-    detected = face_detector.detectMultiScale(gray, 1.3, 5)
-
-    if len(detected) == 0:
-        frames = [cv2.resize(f, (224, 224)) for f in frames]
-        return frames
-
-    x,y,w,h = detected[0]
+    
+    best_box = None
+    best_frame_idx = 0
+    max_area = 0
+    
+    for i, frame in enumerate(frames[:5]):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        detected = face_detector.detectMultiScale(gray, 1.3, 5)
+    
+        for (x,y,w,h) in detected:
+            area = w * h
+            if area > max_area:
+                max_area = area
+                best_box = (x,y,w,h)
+                best_frame_idx = i
+    
+    if best_box is None:
+        return [cv2.resize(f, (224,224)) for f in frames]
+    
+    x,y,w,h = best_box
 
     tracker = cv2.legacy.TrackerCSRT_create()
-    tracker.init(first, (x,y,w,h))
+    tracker.init(frames[best_frame_idx], (x,y,w,h))
 
     for frame in frames:
         h_frame, w_frame = frame.shape[:2]
@@ -133,7 +142,6 @@ def face_detect_trace(vid_path):
 
 
 # applying frequency transform
-
 def fft_transform(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     f = np.fft.fft2(gray)

@@ -180,3 +180,68 @@ class Model2(nn.Module):
         out = self.fc(combined)
 
         return out
+
+class Model3(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.spatial_net = models.mobilenet_v2(weights="IMAGENET1K_V1").features
+
+        for param in self.spatial_net[:-20].parameters():
+            param.requires_grad = False
+
+        for param in self.spatial_net[-20:].parameters():
+            param.requires_grad = True
+            
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        
+        self.freq_net = nn.Sequential(
+            nn.Conv2d(1, 16, 3, padding = 1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, 3, padding = 1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d(1)
+        )
+
+        self.norm = nn.LayerNorm(1312)
+        
+        self.attn = nn.Sequential(
+            nn.Linear(1312, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+
+        self.frame_fc = nn.Linear(1312, 1)
+        
+        self.fc = nn.Sequential(
+            nn.Linear(1312, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, 1)
+        )
+
+    def forward(self, spatial, frequency):
+        B, T, C, H, W = spatial.shape
+
+        spatial = spatial.view(B * T, C, H, W)
+        frequency = frequency.view(B * T, 1, H, W)
+
+        s_feat = self.spatial_net(spatial)
+        s_feat = self.pool(s_feat)
+        f_feat = self.freq_net(frequency)
+
+        s_feat = s_feat.view(B, T, -1)
+        f_feat = f_feat.view(B, T, -1)
+
+        combined = torch.cat([s_feat, f_feat], dim = 2)
+        combined = self.norm(combined)
+
+        frame_preds = self.frame_fc(combined)
+
+        weights = torch.softmax(self.attn(combined) / 0.5, dim = 1)
+        
+        combined = (weights * combined).sum(dim = 1)
+        
+        out = self.fc(combined)
+
+        return out, frame_preds, weights
